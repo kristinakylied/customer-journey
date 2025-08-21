@@ -6,6 +6,7 @@ const cron = require('node-cron');
 const app = express();
 app.use(express.json());
 
+// Simple test endpoint
 app.get('/', (req, res) => {
     res.send('Customer Journey Mapper is running!');
 });
@@ -32,8 +33,26 @@ function addCustomerEvent(email, event) {
 // Intercom webhook - shows customer journey when agent opens conversation
 app.post('/intercom/initialize', async (req, res) => {
     try {
-        const { context } = req.body;
-        const customerEmail = context.user?.email || context.lead?.email;
+        // Debug: log what we're receiving
+        console.log('Received webhook data:', JSON.stringify(req.body, null, 2));
+
+        const context = req.body.context || req.body;
+        let customerEmail = null;
+
+        // Try multiple ways to get customer email
+        if (context && context.user && context.user.email) {
+            customerEmail = context.user.email;
+        } else if (context && context.lead && context.lead.email) {
+            customerEmail = context.lead.email;
+        } else if (context && context.contact && context.contact.email) {
+            customerEmail = context.contact.email;
+        } else if (req.body.user && req.body.user.email) {
+            customerEmail = req.body.user.email;
+        } else if (req.body.contact && req.body.contact.email) {
+            customerEmail = req.body.contact.email;
+        }
+
+        console.log('Extracted customer email:', customerEmail);
         
         if (!customerEmail) {
             return res.json({
@@ -96,7 +115,7 @@ app.post('/intercom/initialize', async (req, res) => {
         } else {
             components.push({
                 type: "text",
-                text: "No recent activity found"
+                text: "Loading customer data... Please refresh in a moment."
             });
         }
 
@@ -115,7 +134,7 @@ app.post('/intercom/initialize', async (req, res) => {
                 content: {
                     components: [{
                         type: "text",
-                        text: "Error loading customer journey"
+                        text: "Error loading customer journey - check logs"
                     }]
                 }
             }
@@ -131,6 +150,8 @@ app.post('/intercom/submit', (req, res) => {
 // Function to get fresh data from all platforms
 async function refreshCustomerData(email) {
     try {
+        console.log('Refreshing data for:', email);
+        
         // Get Stripe data
         await getStripeData(email);
         
@@ -140,6 +161,8 @@ async function refreshCustomerData(email) {
         // Get Linear data (if customer has reported bugs)
         await getLinearData(email);
         
+        console.log('Data refresh completed for:', email);
+        
     } catch (error) {
         console.error('Error refreshing customer data:', error);
     }
@@ -148,14 +171,25 @@ async function refreshCustomerData(email) {
 // Get Stripe billing events
 async function getStripeData(email) {
     try {
+        if (!process.env.STRIPE_SECRET_KEY) {
+            console.log('No Stripe key configured - skipping Stripe data');
+            return;
+        }
+
+        console.log('Fetching Stripe data for:', email);
+        
         const customers = await stripe.customers.list({
             email: email,
             limit: 1
         });
         
-        if (customers.data.length === 0) return;
+        if (customers.data.length === 0) {
+            console.log('No Stripe customer found for:', email);
+            return;
+        }
         
         const customer = customers.data[0];
+        console.log('Found Stripe customer:', customer.id);
         
         // Get recent charges
         const charges = await stripe.charges.list({
@@ -196,6 +230,8 @@ async function getStripeData(email) {
             });
         });
         
+        console.log('Stripe data fetched successfully for:', email);
+        
     } catch (error) {
         console.error('Error fetching Stripe data:', error);
     }
@@ -204,6 +240,19 @@ async function getStripeData(email) {
 // Get Customer.io engagement data
 async function getCustomerIoData(email) {
     try {
+        if (!process.env.CUSTOMERIO_SITE_ID || !process.env.CUSTOMERIO_API_KEY) {
+            console.log('No Customer.io credentials - adding placeholder event');
+            addCustomerEvent(email, {
+                platform: 'customer_io',
+                type: 'email_engagement',
+                description: 'Customer.io integration ready - configure API keys',
+                timestamp: new Date().toISOString()
+            });
+            return;
+        }
+
+        console.log('Fetching Customer.io data for:', email);
+        
         // Note: Customer.io API requires different authentication
         // This is a simplified example - you'll need to adjust based on their API
         
@@ -228,13 +277,32 @@ async function getCustomerIoData(email) {
         
     } catch (error) {
         console.error('Error fetching Customer.io data:', error);
-        // Don't throw error - continue with other platforms
+        // Add placeholder event
+        addCustomerEvent(email, {
+            platform: 'customer_io',
+            type: 'email_engagement',
+            description: 'Customer.io data fetch failed - check API keys',
+            timestamp: new Date().toISOString()
+        });
     }
 }
 
 // Get Linear bug reports
 async function getLinearData(email) {
     try {
+        if (!process.env.LINEAR_API_KEY) {
+            console.log('No Linear API key - adding placeholder event');
+            addCustomerEvent(email, {
+                platform: 'linear',
+                type: 'bug_report',
+                description: 'Linear integration ready - configure API key',
+                timestamp: new Date().toISOString()
+            });
+            return;
+        }
+
+        console.log('Fetching Linear data for:', email);
+        
         const query = `
             query {
                 issues(filter: { description: { contains: "${email}" } }) {
@@ -276,6 +344,13 @@ async function getLinearData(email) {
         
     } catch (error) {
         console.error('Error fetching Linear data:', error);
+        // Add placeholder event
+        addCustomerEvent(email, {
+            platform: 'linear',
+            type: 'bug_report',
+            description: 'Linear data fetch failed - check API key',
+            timestamp: new Date().toISOString()
+        });
     }
 }
 
