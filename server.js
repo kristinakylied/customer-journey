@@ -6,6 +6,10 @@ const cron = require('node-cron');
 const app = express();
 app.use(express.json());
 
+app.get('/', (req, res) => {
+    res.send('Customer Journey Mapper is running!');
+});
+
 // In-memory storage for customer events (in production, use a real database)
 let customerEvents = {};
 
