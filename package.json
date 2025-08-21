@@ -1,5 +1,5 @@
 {
-  "name": "customer-journey-mapper",
+  "name": "customer-journey",
   "version": "1.0.0",
   "description": "Cross-platform customer journey tracking for support teams",
   "main": "server.js",
